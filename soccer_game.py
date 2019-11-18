@@ -69,13 +69,13 @@ class SoccerGame:
                 return 0
 
     def check_goal(self, position):
-        # whoever the player is, when col == 0, A will get -100
-        # when col == NUM_COLS - 1, A will get 100
+        # whoever the player is, when col == 0, A will get 100
+        # when col == NUM_COLS - 1, A will get -100
         # All the reward is from the perspective of A, B will get the opposite of A.
         if position[1] == 0:
-            return -100
-        elif position[1] == NUM_COLS - 1:
             return 100
+        elif position[1] == NUM_COLS - 1:
+            return -100
         else:
             return 0
 

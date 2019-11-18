@@ -75,19 +75,19 @@ class SoccerGamePlayersCE(SoccerGamePlayers):
 
         # update table_q for current state
         prev_q_a = table_q_a[current_state, actions[0], actions[1]]
-        prev_q_b = table_q_b[current_state, actions[1], actions[0]]
+        prev_q_b = table_q_b[current_state, actions[0], actions[1]]
         table_q_a[current_state, actions[0], actions[1]] = (1 - self.alpha) * table_q_a[current_state, actions[0], actions[1]] +\
                                                            self.alpha * ((1 - self.gamma) * reward + self.gamma * table_v_a[next_state])
-        table_q_b[current_state, actions[1], actions[0]] = (1 - self.alpha) * table_q_b[current_state, actions[1], actions[0]] +\
+        table_q_b[current_state, actions[0], actions[1]] = (1 - self.alpha) * table_q_b[current_state, actions[0], actions[1]] +\
                                                            self.alpha * ((1 - self.gamma) * (-1 * reward) + self.gamma * table_v_b[next_state])
         post_q_a = table_q_a[current_state, actions[0], actions[1]]
-        post_q_b = table_q_b[current_state, actions[1], actions[0]]
+        post_q_b = table_q_b[current_state, actions[0], actions[1]]
 
         # update alpha and epsilon
         self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
-        return (prev_q_a, post_q_a), (prev_q_b, post_q_b)
+        return (prev_q_a, post_q_a), (prev_q_b, post_q_b), self.alpha, self.epsilon
 
     def selection_function(self, state, table_v, table_q, table_pi):
         num_actions = self.num_actions
@@ -95,7 +95,7 @@ class SoccerGamePlayersCE(SoccerGamePlayers):
         table_q_a_state = table_q[0, state]
         table_q_b_state = table_q[1, state]
 
-        c = (table_q_a_state + table_q_b_state).flatten()
+        c = -(table_q_a_state + table_q_b_state).flatten()
 
         G = np.zeros(((num_actions - 1) * num_actions * 2, num_actions_squared))
         G_row_idx = 0
@@ -120,7 +120,7 @@ class SoccerGamePlayersCE(SoccerGamePlayers):
 
         h = np.zeros(G.shape[0])
         A = np.ones((1, num_actions_squared))
-        b = [1.]
+        b = [1.0]
 
         res = solvers.lp(matrix(c), matrix(G), matrix(h), matrix(A), matrix(b))
         x = np.array(res['x']).flatten()
@@ -138,16 +138,17 @@ class SoccerGamePlayersCE(SoccerGamePlayers):
             return np.random.randint(self.num_actions, size=self.num_players)
         else:
             actions = [None] * self.num_players
-            for player in range(self.num_players):
-                policy = self.table_pi[state]
-                p = 0
-                random_number = np.random.rand()
-                for action_idx_i in range(self.num_actions):
-                    for action_idx_j in range(self.num_actions):
-                        p += policy[action_idx_i][action_idx_j]
-                        if random_number < p:
-                            actions=[action_idx_i, action_idx_j]
-        return actions
+            policy = self.table_pi[state]
+            p = 0
+            random_number = np.random.rand()
+            for action_idx_i in range(self.num_actions):
+                for action_idx_j in range(self.num_actions):
+                    p += policy[action_idx_i][action_idx_j]
+                    if random_number < p:
+                        actions[0] =action_idx_i
+                        actions[1] = action_idx_j
+                        return actions
+            return actions
 
 class SoccerGamePlayersFriendQ(SoccerGamePlayers):
     def __init__(self, num_players, num_states, num_actions, epsilon, epsilon_decay, epsilon_min, alpha, alpha_decay, alpha_min, gamma):
@@ -162,7 +163,12 @@ class SoccerGamePlayersFriendQ(SoccerGamePlayers):
     def step(self, actions, reward, current_state, next_state):
         prev_q_a, post_q_a = self.step_single_player(0, actions, reward, current_state, next_state)
         prev_q_b, post_q_b = self.step_single_player(1, [actions[1], actions[0]], -reward, current_state, next_state)
-        return (prev_q_a, post_q_a), (prev_q_b, post_q_b)
+
+        # update alpha and epsilon
+        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
+        return (prev_q_a, post_q_a), (prev_q_b, post_q_b), self.alpha, self.epsilon
 
     def step_single_player(self, player, actions, reward, current_state, next_state):
         table_v = self.table_v[player]
@@ -177,10 +183,6 @@ class SoccerGamePlayersFriendQ(SoccerGamePlayers):
         table_q[current_state, actions[0], actions[1]] = (1 - self.alpha) * table_q[current_state, actions[0], actions[1]] + \
                                                           self.alpha * ((1 - self.gamma) * reward + self.gamma * table_v[next_state])
         post_q = table_q[current_state, actions[0], actions[1]]
-
-        # update alpha and epsilon
-        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
         return prev_q, post_q
 
@@ -199,7 +201,7 @@ class SoccerGamePlayersFriendQ(SoccerGamePlayers):
 
 
     def get_policy(self, player, state):
-        return self.table_pi[player][state]
+        return self.table_pi[player, state]
 
 class SoccerGamePlayersFoeQ(SoccerGamePlayers):
     def __init__(self, num_players, num_states, num_actions, epsilon, epsilon_decay, epsilon_min, alpha, alpha_decay, alpha_min, gamma):
@@ -214,7 +216,12 @@ class SoccerGamePlayersFoeQ(SoccerGamePlayers):
     def step(self, actions, reward, current_state, next_state):
         prev_q_a, post_q_a = self.step_single_player(0, actions, reward, current_state, next_state)
         prev_q_b, post_q_b = self.step_single_player(1, [actions[1], actions[0]], -reward, current_state, next_state)
-        return (prev_q_a, post_q_a), (prev_q_b, post_q_b)
+
+        # update alpha and epsilon
+        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
+        return (prev_q_a, post_q_a), (prev_q_b, post_q_b), self.alpha, self.epsilon
 
     def step_single_player(self, player, actions, reward, current_state, next_state):
         table_v = self.table_v[player]
@@ -230,22 +237,18 @@ class SoccerGamePlayersFoeQ(SoccerGamePlayers):
                                           self.alpha * ((1 - self.gamma) * reward + self.gamma * table_v[next_state])
         post_q = table_q[current_state, actions[0], actions[1]]
 
-        # update alpha and epsilon
-        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-
         return prev_q, post_q
 
     def selection_function(self, state, table_v, table_q, table_pi):
         c = np.zeros(self.num_actions + 1)
         c[0] = -1.0
-        G = np.empty((self.num_actions, self.num_actions + 1))
+        G = np.ones((self.num_actions, self.num_actions + 1))
         G[:, 1:] = -table_q[state].T
         G[:, 0] = 1
         G = np.vstack((-np.eye(self.num_actions + 1, self.num_actions + 1), G))
         G[0, 0] = 0
 
-        h = np.zeros(self.num_actions + self.num_actions + 1)
+        h = np.zeros(2 * self.num_actions + 1)
         A = np.ones((1, self.num_actions + 1))
         A[0, 0] = 0
         b = [1.0]
@@ -256,7 +259,7 @@ class SoccerGamePlayersFoeQ(SoccerGamePlayers):
         table_v[state] = x[0]
 
     def get_policy(self, player, state):
-        return self.table_pi[player][state]
+        return self.table_pi[player, state]
 
 class SoccerGamePlayersQ(SoccerGamePlayers):
     def __init__(self, num_players, num_states, num_actions, epsilon, epsilon_decay, epsilon_min, alpha, alpha_decay, alpha_min, gamma):
@@ -271,14 +274,19 @@ class SoccerGamePlayersQ(SoccerGamePlayers):
     def step(self, actions, reward, current_state, next_state):
         prev_q_a, post_q_a = self.step_single_player(0, actions[0], reward, current_state, next_state)
         prev_q_b, post_q_b = self.step_single_player(1, actions[1], -reward, current_state, next_state)
-        return (prev_q_a, post_q_a), (prev_q_b, post_q_b)
+
+        # update alpha and epsilon
+        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
+        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+
+        return (prev_q_a, post_q_a), (prev_q_b, post_q_b), self.alpha, self.epsilon
 
     def step_single_player(self, player, action, reward, current_state, next_state):
         table_v = self.table_v[player]
         table_q = self.table_q[player]
         table_pi = self.table_pi[player]
 
-        # update policy
+        # update policy and value function
         self.selection_function(next_state, table_v, table_q, table_pi)
 
         # update table_q for current state
@@ -286,10 +294,6 @@ class SoccerGamePlayersQ(SoccerGamePlayers):
         table_q[current_state, action] = (1 - self.alpha) * table_q[current_state, action] + \
                                          self.alpha * ((1 - self.gamma) * reward + self.gamma * table_v[next_state])
         post_q = table_q[current_state, action]
-
-        # update alpha and epsilon
-        self.alpha = max(self.alpha_min, self.alpha * self.alpha_decay)
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
         return prev_q, post_q
 
@@ -301,4 +305,4 @@ class SoccerGamePlayersQ(SoccerGamePlayers):
         table_pi[state, max_index] = 1
 
     def get_policy(self, player, state):
-        return self.table_pi[player][state]
+        return self.table_pi[player, state]
